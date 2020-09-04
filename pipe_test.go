@@ -1,7 +1,9 @@
 package log
 
 import (
+	"bufio"
 	"bytes"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -33,7 +35,83 @@ func TestNewPipeReader(t *testing.T) {
 	if !strings.Contains(buf.String(), "scooby") {
 		t.Errorf("got %q, wanted it to contain log output", buf.String())
 	}
+}
 
+func TestNewPipeReader_parallel(t *testing.T) {
+	for i := 0; i < 10; i++ {
+		t.Run(fmt.Sprintf("parallel#%d", i), func(t *testing.T) {
+			t.Parallel()
+			var (
+				aPipe   = NewPipeReader()
+				bPipe   = NewPipeReader()
+				aReader = bufio.NewReader(aPipe)
+				bReader = bufio.NewReader(bPipe)
+				aLogger = getLogger("A")
+				bLogger = getLogger("B")
+				readWG  sync.WaitGroup
+				writeWG sync.WaitGroup
+			)
+
+			writeWG.Add(20)
+			for i := 0; i < 10; i++ {
+				go func() {
+					aLogger.Error("scooby")
+					writeWG.Done()
+				}()
+				go func() {
+					bLogger.Error("scooby")
+					writeWG.Done()
+				}()
+			}
+
+			readWG.Add(2)
+			go func() {
+				i := 0
+				for {
+					line, err := aReader.ReadString('\n')
+					if err == io.EOF {
+						break
+					}
+					if err != nil {
+						t.Errorf("unexpected error: %v", err)
+					}
+					if !strings.Contains(line, "scooby") {
+						t.Errorf("got %q, wanted it to contain log output", line)
+					}
+					i++
+				}
+				if i != 20 {
+					t.Errorf("got %d lines, expected 20", i)
+				}
+				readWG.Done()
+			}()
+			go func() {
+				i := 0
+				for {
+					line, err := bReader.ReadString('\n')
+					if err == io.EOF {
+						break
+					}
+					if err != nil {
+						t.Errorf("unexpected error: %v", err)
+					}
+					if !strings.Contains(line, "scooby") {
+						t.Errorf("got %q, wanted it to contain log output", line)
+					}
+					i++
+				}
+				if i != 20 {
+					t.Errorf("got %d lines, expected 20", i)
+				}
+				readWG.Done()
+			}()
+
+			writeWG.Wait()
+			aPipe.Close()
+			bPipe.Close()
+			readWG.Wait()
+		})
+	}
 }
 
 func TestNewPipeReaderFormat(t *testing.T) {
@@ -59,7 +137,6 @@ func TestNewPipeReaderFormat(t *testing.T) {
 	if !strings.Contains(buf.String(), "scooby") {
 		t.Errorf("got %q, wanted it to contain log output", buf.String())
 	}
-
 }
 
 func TestNewPipeReaderLevel(t *testing.T) {
@@ -99,5 +176,4 @@ func TestNewPipeReaderLevel(t *testing.T) {
 	if !strings.Contains(buf.String(), "shaggy") {
 		t.Errorf("got %q, wanted it to contain log output", buf.String())
 	}
-
 }

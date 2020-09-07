@@ -40,28 +40,30 @@ func TestNewPipeReader(t *testing.T) {
 func TestNewPipeReader_parallel(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		t.Run(fmt.Sprintf("parallel#%d", i), func(t *testing.T) {
-			t.Parallel()
 			var (
 				aPipe   = NewPipeReader()
 				bPipe   = NewPipeReader()
 				aReader = bufio.NewReader(aPipe)
 				bReader = bufio.NewReader(bPipe)
-				aLogger = getLogger("A")
-				bLogger = getLogger("B")
+				loggers = []*zap.SugaredLogger{
+					getLogger("A"),
+					getLogger("B"),
+					getLogger("C"),
+				}
 				readWG  sync.WaitGroup
 				writeWG sync.WaitGroup
 			)
 
-			writeWG.Add(20)
-			for i := 0; i < 10; i++ {
-				go func() {
-					aLogger.Error("scooby")
-					writeWG.Done()
-				}()
-				go func() {
-					bLogger.Error("scooby")
-					writeWG.Done()
-				}()
+			writeWG.Add(30)
+			for _, logger := range loggers {
+				go func(logger *zap.SugaredLogger) {
+					for i := 0; i < 10; i++ {
+						go func() {
+							logger.Error("scooby")
+							writeWG.Done()
+						}()
+					}
+				}(logger)
 			}
 
 			readWG.Add(2)
@@ -80,8 +82,8 @@ func TestNewPipeReader_parallel(t *testing.T) {
 					}
 					i++
 				}
-				if i != 20 {
-					t.Errorf("got %d lines, expected 20", i)
+				if i != 30 {
+					t.Errorf("got %d lines, expected 30", i)
 				}
 				readWG.Done()
 			}()
@@ -100,8 +102,8 @@ func TestNewPipeReader_parallel(t *testing.T) {
 					}
 					i++
 				}
-				if i != 20 {
-					t.Errorf("got %d lines, expected 20", i)
+				if i != 30 {
+					t.Errorf("got %d lines, expected 30", i)
 				}
 				readWG.Done()
 			}()
